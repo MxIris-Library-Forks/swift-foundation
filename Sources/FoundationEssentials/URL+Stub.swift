@@ -13,7 +13,29 @@
 #if !FOUNDATION_FRAMEWORK
 
 public struct URL : Hashable, Sendable, Codable {
+    public let path: String
     
+    enum DirectoryHint {
+        case isDirectory
+    }
+    internal init(filePath: String, directoryHint: DirectoryHint = .isDirectory) {
+        self.path = filePath
+    }
+    internal init(fileURLWithPath: String, isDirectory: Bool? = nil) {
+        self.path = fileURLWithPath
+    }
+    
+    public var isFileURL: Bool { true }
+    public var lastPathComponent: String { path.lastPathComponent }
+    public var scheme: String? { "file" }
+    
+    internal func path(percentEncoded: Bool = true) -> String { self.path }
+    
+    internal func withUnsafeFileSystemRepresentation<ResultType>(_ block: (UnsafePointer<Int8>?) throws -> ResultType) rethrows -> ResultType {
+        try path.withFileSystemRepresentation(block)
+    }
 }
 
-#endif // !Foundation_FRAMEWORK
+public struct URLResourceKey {}
+
+#endif // !FOUNDATION_FRAMEWORK

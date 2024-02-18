@@ -145,6 +145,42 @@ final class GregorianCalendarTests : XCTestCase {
         test(.init(weekOfYear: 43, yearForWeekOfYear: 2935), expected: Date(timeIntervalSince1970: 30477945600.0))
     }
 
+    func testDateFromComponents_componentsTimeZone() {
+        let gregorianCalendar = _CalendarGregorian(identifier: .gregorian, timeZone: .gmt, locale: nil, firstWeekday: nil, minimumDaysInFirstWeek: nil, gregorianStartDate: nil)
+
+        let dcCalendar = Calendar(identifier: .japanese, locale: Locale(identifier: ""), timeZone: .init(secondsFromGMT: -25200), firstWeekday: 1, minimumDaysInFirstWeek: 1, gregorianStartDate: nil)
+        let dc = DateComponents(calendar: nil, timeZone: nil, era: 1, year: 2022, month: 7, day: 9, hour: 10, minute: 2, second: 55, nanosecond: 891000032, weekday: 7, weekdayOrdinal: 2, quarter: 0, weekOfMonth: 2, weekOfYear: 28, yearForWeekOfYear: 2022)
+
+        var dc_customCalendarAndTimeZone = dc
+        dc_customCalendarAndTimeZone.calendar = dcCalendar
+        dc_customCalendarAndTimeZone.timeZone = .init(secondsFromGMT: 28800)
+        // calendar.timeZone = UTC+0, dc.calendar.timeZone = UTC-7, dc.timeZone = UTC+8
+        // expect local time in dc.timeZone (UTC+8)
+        XCTAssertEqual(gregorianCalendar.date(from: dc_customCalendarAndTimeZone)!, Date(timeIntervalSinceReferenceDate: 679024975.891)) // 2022-07-09T02:02:55Z
+
+        var dc_customCalendar = dc
+        dc_customCalendar.calendar = dcCalendar
+        dc_customCalendar.timeZone = nil
+        // calendar.timeZone = UTC+0, dc.calendar.timeZone = UTC-7, dc.timeZone = nil
+        // expect local time in calendar.timeZone (UTC+0)
+        XCTAssertEqual(gregorianCalendar.date(from: dc_customCalendar)!, Date(timeIntervalSinceReferenceDate: 679053775.891)) // 2022-07-09T10:02:55Z
+
+        var dc_customTimeZone = dc_customCalendarAndTimeZone
+        dc_customTimeZone.calendar = nil
+        dc_customTimeZone.timeZone = .init(secondsFromGMT: 28800)
+        // calendar.timeZone = UTC+0, dc.calendar = nil, dc.timeZone = UTC+8
+        // expect local time in dc.timeZone (UTC+8)
+        XCTAssertEqual(gregorianCalendar.date(from: dc_customTimeZone)!, Date(timeIntervalSinceReferenceDate: 679024975.891)) // 2022-07-09T02:02:55Z
+
+        let dcCalendar_noTimeZone = Calendar(identifier: .japanese, locale: Locale(identifier: ""), timeZone: nil, firstWeekday: 1, minimumDaysInFirstWeek: 1, gregorianStartDate: nil)
+        var dc_customCalendarNoTimeZone_customTimeZone = dc
+        dc_customCalendarNoTimeZone_customTimeZone.calendar = dcCalendar_noTimeZone
+        dc_customCalendarNoTimeZone_customTimeZone.timeZone = .init(secondsFromGMT: 28800)
+        // calendar.timeZone = UTC+0, dc.calendar.timeZone = nil, dc.timeZone = UTC+8
+        // expect local time in dc.timeZone (UTC+8)
+        XCTAssertEqual(gregorianCalendar.date(from: dc_customCalendarNoTimeZone_customTimeZone)!, Date(timeIntervalSinceReferenceDate: 679024975.891)) // 2022-07-09T02:02:55Z
+    }
+
     // MARK: - DateComponents from date
     func testDateComponentsFromDate() {
         let calendar = _CalendarGregorian(identifier: .gregorian, timeZone: TimeZone(secondsFromGMT: 0)!, locale: nil, firstWeekday: 1, minimumDaysInFirstWeek: 5, gregorianStartDate: nil)
@@ -2836,6 +2872,65 @@ final class GregorianCalendarTests : XCTestCase {
         test(.yearForWeekOfYear, date, expectedStart: Date(timeIntervalSince1970: 820569600.0), end: Date(timeIntervalSince1970: 852019200.0))
     }
 
+    // MARK: - Day Of Year
+    func test_dayOfYear() {
+        // An arbitrary date, for which we know the answers
+        let date = Date(timeIntervalSinceReferenceDate: 682898558) // 2022-08-22 22:02:38 UTC, day 234
+        let leapYearDate = Date(timeIntervalSinceReferenceDate: 745891200) // 2024-08-21 00:00:00 UTC, day 234
+        let cal = _CalendarGregorian(identifier: .gregorian, timeZone: .gmt, locale: nil, firstWeekday: nil, minimumDaysInFirstWeek: nil, gregorianStartDate: nil)
+
+        // Ordinality
+        XCTAssertEqual(cal.ordinality(of: .dayOfYear, in: .year, for: date), 234)
+        XCTAssertEqual(cal.ordinality(of: .hour, in: .dayOfYear, for: date), 23)
+        XCTAssertEqual(cal.ordinality(of: .minute, in: .dayOfYear, for: date), 1323)
+        XCTAssertEqual(cal.ordinality(of: .second, in: .dayOfYear, for: date), 79359)
+
+        // Nonsense ordinalities. Since day of year is already relative, we don't count the Nth day of year in an era.
+        XCTAssertEqual(cal.ordinality(of: .dayOfYear, in: .era, for: date), nil)
+        XCTAssertEqual(cal.ordinality(of: .year, in: .dayOfYear, for: date), nil)
+
+        // Interval
+        let interval = cal.dateInterval(of: .dayOfYear, for: date)
+        XCTAssertEqual(interval, DateInterval(start: Date(timeIntervalSinceReferenceDate: 682819200), duration: 86400))
+
+        // Specific component values
+        XCTAssertEqual(cal.dateComponent(.dayOfYear, from: date), 234)
+
+
+        // Ranges
+        let min = cal.minimumRange(of: .dayOfYear)
+        let max = cal.maximumRange(of: .dayOfYear)
+        XCTAssertEqual(min, 1..<366) // hard coded for gregorian
+        XCTAssertEqual(max, 1..<367)
+
+        XCTAssertEqual(cal.range(of: .dayOfYear, in: .year, for: date), 1..<366)
+        XCTAssertEqual(cal.range(of: .dayOfYear, in: .year, for: leapYearDate), 1..<367)
+
+        // Addition
+        let d1 = cal.add(.dayOfYear, to: date, amount: 1, inTimeZone: .gmt)
+        XCTAssertEqual(d1, date + 86400)
+
+        let d2 = cal.addAndWrap(.dayOfYear, to: date, amount: 365, inTimeZone: .gmt)
+        XCTAssertEqual(d2, date)
+
+        // Conversion from DateComponents
+        var dc = DateComponents(year: 2022, hour: 22, minute: 2, second: 38)
+        dc.dayOfYear = 234
+        let d = cal.date(from: dc)
+        XCTAssertEqual(d, date)
+
+        var subtractMe = DateComponents()
+        subtractMe.dayOfYear = -1
+        let firstDay = Date(timeIntervalSinceReferenceDate: 662688000)
+        let previousDay = cal.date(byAdding: subtractMe, to:firstDay, wrappingComponents: false)
+        XCTAssertNotNil(previousDay)
+        let previousDayComps = cal.dateComponents([.year, .dayOfYear], from: previousDay!)
+        var previousDayExpectationComps = DateComponents()
+        previousDayExpectationComps.year = 2021
+        previousDayExpectationComps.dayOfYear = 365
+        XCTAssertEqual(previousDayComps, previousDayExpectationComps)
+    }
+
     // MARK: - Range of
 
     func testRangeOf() {
@@ -3002,6 +3097,420 @@ final class GregorianCalendarTests : XCTestCase {
         test(.weekOfMonth, in: .month, for: date, expected: 1..<6)
         test(.weekOfYear, in: .month, for: date, expected: 1..<6)
         test(.day, in: .weekOfMonth, for: date, expected: 1..<7)
+    }
+
+    // MARK: - Difference
+
+    func testDateComponentsFromStartToEnd() {
+        let calendar = _CalendarGregorian(identifier: .gregorian, timeZone: .gmt, locale: nil, firstWeekday: 1, minimumDaysInFirstWeek: 4, gregorianStartDate: nil)
+        var start: Date!
+        var end: Date!
+        func test(_ components: Calendar.ComponentSet, expected: DateComponents, file: StaticString = #file, line: UInt = #line) {
+            let actual = calendar.dateComponents(components, from: start, to: end)
+            XCTAssertEqual(actual, expected, file: file, line: line)
+        }
+
+        // non leap to leap
+        start = Date(timeIntervalSince1970: 788918400.0) // 1995-01-01
+        end = Date(timeIntervalSince1970: 825638400.0) // 1996-03-01
+        test([.year, .day, .month], expected: .init(year: 1, month: 2, day: 0))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 1, month: 2, weekday: 0, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 8, yearForWeekOfYear: 1))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 1, month: 2, weekday: 0, weekdayOrdinal: 0))
+
+        // leap to non leap
+        // positive year, negative month
+        start = Date(timeIntervalSince1970: 823132800.0) // 1996-02-01
+        end = Date(timeIntervalSince1970: 852076800.0) // 1997-01-01
+        test([.year, .day, .month], expected: .init(year: 0, month: 11, day: 0))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 11, weekday: 0, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 47, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 11, weekday: 0, weekdayOrdinal: 0))
+
+        // within leap
+        // positive month, positive day
+        start = Date(timeIntervalSince1970: 822960000.0) // 1996-01-30
+        end = Date(timeIntervalSince1970: 825552000.0) // 1996-02-29
+        test([.year, .day, .month], expected: .init(year: 0, month: 1, day: 0))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 1, weekday: 0, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 4, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 1, weekday: 0, weekdayOrdinal: 0))
+
+        // positive month, negative day
+        start = Date(timeIntervalSince1970: 823046400.0) // 1996-01-31
+        end = Date(timeIntervalSince1970: 825638400.0) // 1996-03-01
+        test([.year, .day, .month], expected: .init(year: 0, month: 1, day: 1))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 1, weekday: 1, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 4, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 1, weekday: 1, weekdayOrdinal: 0))
+
+        // within non leap
+        // positive month, positive day
+        start = Date(timeIntervalSince1970: 788918400.0) // 1995-01-01
+        end = Date(timeIntervalSince1970: 794361600.0) // 1995-03-05
+        test([.year, .day, .month], expected: .init(year: 0, month: 2, day: 4))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 2, weekday: 4, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 9, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 2, weekday: 4, weekdayOrdinal: 0))
+
+        // positive month, negative day
+        start = Date(timeIntervalSince1970: 791510400.0) // 1995-01-31
+        end = Date(timeIntervalSince1970: 794361600.0) // 1995-03-05
+        test([.year, .day, .month], expected: .init(year: 0, month: 1, day: 5))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 1, weekday: 5, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 4, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 1, weekday: 5, weekdayOrdinal: 0))
+
+        // ---------
+        // Backwards
+        start = Date(timeIntervalSince1970: 852076800.0) // 1997-01-01
+        end = Date(timeIntervalSince1970: 851817600.0) // 1996-12-29
+        test([.year, .day, .month], expected: .init(year: 0, month: 0, day: -3))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 0, weekday: -3, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: 0, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 0, weekday: -3, weekdayOrdinal: 0))
+
+        // leap to non leap
+        // negative year, positive month
+        start = Date(timeIntervalSince1970: 825638400.0) // 1996-03-01
+        end = Date(timeIntervalSince1970: 817776000.0) // 1995-12-01
+        test([.year, .day, .month], expected: .init(year: 0, month: -3, day: 0))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: -3, weekday: 0, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: -13, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: -3, weekday: 0, weekdayOrdinal: 0))
+
+        // within leap
+        // negative month, negative day
+        start = Date(timeIntervalSince1970: 825984000.0) // 1996-03-05
+        end = Date(timeIntervalSince1970: 820454400.0) // 1996-01-01
+        test([.year, .day, .month], expected: .init(year: 0, month: -2, day: -4))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: -2, weekday: -4, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: -9, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: -2, weekday: -4, weekdayOrdinal: 0))
+
+        // negative month, positive day
+        start = Date(timeIntervalSince1970: 825552000.0) // 1996-02-29
+        end = Date(timeIntervalSince1970: 823046400.0) // 1996-01-31
+        test([.year, .day, .month], expected: .init(year: 0, month: 0, day: -29))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 0, weekday: -1, weekOfMonth: -4))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: -4, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 0, weekday: -29, weekdayOrdinal: 0))
+
+        // within non leap
+        // negative month, negative day
+        start = Date(timeIntervalSince1970: 794361600.0) // 1995-03-05
+        end = Date(timeIntervalSince1970: 788918400.0) // 1995-01-01
+        test([.year, .day, .month], expected: .init(year: 0, month: -2, day: -4))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: -2, weekday: -4, weekOfMonth: 0))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: -9, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: -2, weekday: -4, weekdayOrdinal: 0))
+
+        // negative month, positive day
+        start = Date(timeIntervalSince1970: 793929600.0) // 1995-02-28
+        end = Date(timeIntervalSince1970: 791510400.0) // 1995-01-31
+        test([.year, .day, .month], expected: .init(year: 0, month: 0, day: -28))
+        test([.weekday, .year, .month, .weekOfMonth], expected: .init(year: 0, month: 0, weekday: 0, weekOfMonth: -4))
+        test([.yearForWeekOfYear, .weekOfYear], expected: .init(weekOfYear: -4, yearForWeekOfYear: 0))
+        test([.weekday, .year, .month, .weekdayOrdinal], expected: .init(year: 0, month: 0, weekday: -28, weekdayOrdinal: 0))
+    }
+
+    func testDifference() {
+        let calendar = _CalendarGregorian(identifier: .gregorian, timeZone: TimeZone(secondsFromGMT: -28800)!, locale: nil, firstWeekday: 1, minimumDaysInFirstWeek: 4, gregorianStartDate: nil)
+        var start: Date!
+        var end: Date!
+        func test(_ component: Calendar.Component, expected: Int, file: StaticString = #file, line: UInt = #line) {
+            let (actualDiff, _) = try! calendar.difference(inComponent: component, from: start, to: end)
+            XCTAssertEqual(actualDiff, expected, file: file, line: line)
+        }
+
+        // non leap to leap
+        start = Date(timeIntervalSince1970: 788947200.0) // 1995-01-01
+        end = Date(timeIntervalSince1970: 825667200.0) // 1996-03-01
+        test(.era, expected: 0)
+        test(.year, expected: 1)
+        test(.month, expected: 14)
+        test(.day, expected: 425)
+        test(.hour, expected: 10200)
+        test(.weekday, expected: 425)
+        test(.weekdayOrdinal, expected: 60)
+        test(.weekOfMonth, expected: 60)
+        test(.weekOfYear, expected: 60)
+        test(.yearForWeekOfYear, expected: 1)
+        test(.dayOfYear, expected: 425)
+
+        // leap to non leap
+        start = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        end = Date(timeIntervalSince1970: 852105600.0) // 1997-01-01
+        test(.era, expected: 0)
+        test(.year, expected: 1)
+        test(.month, expected: 12)
+        test(.day, expected: 366)
+        test(.hour, expected: 8784)
+        test(.weekday, expected: 366)
+        test(.weekdayOrdinal, expected: 52)
+        test(.weekOfMonth, expected: 52)
+        test(.weekOfYear, expected: 52)
+        test(.yearForWeekOfYear, expected: 1)
+        test(.dayOfYear, expected: 366)
+
+        // within leap
+        start = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        end = Date(timeIntervalSince1970: 825580800.0) // 1996-02-29
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: 1)
+        test(.day, expected: 59)
+        test(.hour, expected: 1416)
+        test(.weekday, expected: 59)
+        test(.weekdayOrdinal, expected: 8)
+        test(.weekOfMonth, expected: 8)
+        test(.weekOfYear, expected: 8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: 59)
+
+        start = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        end = Date(timeIntervalSince1970: 825667200.0) // 1996-03-01
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: 2)
+        test(.day, expected: 60)
+        test(.hour, expected: 1440)
+        test(.weekday, expected: 60)
+        test(.weekdayOrdinal, expected: 8)
+        test(.weekOfMonth, expected: 8)
+        test(.weekOfYear, expected: 8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: 60)
+
+        // within non leap
+        start = Date(timeIntervalSince1970: 788947200.0) // 1995-01-01
+        end = Date(timeIntervalSince1970: 794044800.0) // 1995-03-01
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: 2)
+        test(.day, expected: 59)
+        test(.hour, expected: 1416)
+        test(.weekday, expected: 59)
+        test(.weekdayOrdinal, expected: 8)
+        test(.weekOfMonth, expected: 8)
+        test(.weekOfYear, expected: 8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: 59)
+
+        // Backwards
+        // non leap to leap
+        start = Date(timeIntervalSince1970: 825667200.0) // 1996-03-01
+        end = Date(timeIntervalSince1970: 788947200.0) // 1995-01-01
+        test(.era, expected: 0)
+        test(.year, expected: -1)
+        test(.month, expected: -14)
+        test(.day, expected: -425)
+        test(.hour, expected: -10200)
+        test(.weekday, expected: -425)
+        test(.weekdayOrdinal, expected: -60)
+        test(.weekOfMonth, expected: -60)
+        test(.weekOfYear, expected: -60)
+        test(.yearForWeekOfYear, expected: -1)
+        test(.dayOfYear, expected: -425)
+
+        // leap to non leap
+        start = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        end = Date(timeIntervalSince1970: 788947200.0) // 1995-01-01
+        test(.era, expected: 0)
+        test(.year, expected: -1)
+        test(.month, expected: -12)
+        test(.day, expected: -365)
+        test(.hour, expected: -8760)
+        test(.weekday, expected: -365)
+        test(.weekdayOrdinal, expected: -52)
+        test(.weekOfMonth, expected: -52)
+        test(.weekOfYear, expected: -52)
+        test(.yearForWeekOfYear, expected: -1)
+        test(.dayOfYear, expected: -365)
+
+        // within leap
+        start = Date(timeIntervalSince1970: 825667200.0) // 1996-03-01
+        end = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: -2)
+        test(.day, expected: -60)
+        test(.hour, expected: -1440)
+        test(.weekday, expected: -60)
+        test(.weekdayOrdinal, expected: -8)
+        test(.weekOfMonth, expected: -8)
+        test(.weekOfYear, expected: -8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: -60)
+
+        start = Date(timeIntervalSince1970: 825580800.0) // 1996-02-29
+        end = Date(timeIntervalSince1970: 820483200.0) // 1996-01-01
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: -1)
+        test(.day, expected: -59)
+        test(.hour, expected: -1416)
+        test(.weekday, expected: -59)
+        test(.weekdayOrdinal, expected: -8)
+        test(.weekOfMonth, expected: -8)
+        test(.weekOfYear, expected: -8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: -59)
+
+        // within non leap
+        start = Date(timeIntervalSince1970: 794044800.0) // 1995-03-01
+        end = Date(timeIntervalSince1970: 788947200.0) // 1995-01-01
+        test(.era, expected: 0)
+        test(.year, expected: 0)
+        test(.month, expected: -2)
+        test(.day, expected: -59)
+        test(.hour, expected: -1416)
+        test(.weekday, expected: -59)
+        test(.weekdayOrdinal, expected: -8)
+        test(.weekOfMonth, expected: -8)
+        test(.weekOfYear, expected: -8)
+        test(.yearForWeekOfYear, expected: 0)
+        test(.dayOfYear, expected: -59)
+
+        // Time
+
+        start = Date(timeIntervalSince1970: 820479600.0) // 1995-12-31 23:00:00
+        end = Date(timeIntervalSince1970: 825667200.0) // 1996-03-01 00:00:00
+        test(.hour, expected: 1441)
+        test(.minute, expected: 86460)
+        test(.second, expected: 5187600)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 852105540.0) // 1996-12-31 23:59:00
+        end = Date(timeIntervalSince1970: 857203205.0) // 1997-03-01 00:00:05
+        test(.hour, expected: 1416)
+        test(.minute, expected: 84961)
+        test(.second, expected: 5097665)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825580720.0) // 1996-02-28 23:58:40
+        end = Date(timeIntervalSince1970: 825580805.0) // 1996-02-29 00:00:05
+        test(.hour, expected: 0)
+        test(.minute, expected: 1)
+        test(.second, expected: 85)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825580720.0) // 1996-02-28 23:58:40
+        end = Date(timeIntervalSince1970: 825667205.0) // 1996-03-01 00:00:05
+        test(.hour, expected: 24)
+        test(.minute, expected: 1441)
+        test(.second, expected: 86485)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 794044710.0) // 1995-02-28 23:58:30
+        end = Date(timeIntervalSince1970: 794044805.0) // 1995-03-01 00:00:05
+        test(.hour, expected: 0)
+        test(.minute, expected: 1)
+        test(.second, expected: 95)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 857203205.0) // 1997-03-01 00:00:05
+        end = Date(timeIntervalSince1970: 852105520.0) // 1996-12-31 23:58:40
+        test(.hour, expected: -1416)
+        test(.minute, expected: -84961)
+        test(.second, expected: -5097685)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825667205.0) // 1996-03-01 00:00:05
+        end = Date(timeIntervalSince1970: 820483120.0) // 1995-12-31 23:58:40
+        test(.hour, expected: -1440)
+        test(.minute, expected: -86401)
+        test(.second, expected: -5184085)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825667205.0) // 1996-03-01 00:00:05
+        end = Date(timeIntervalSince1970: 825580720.0) // 1996-02-28 23:58:40
+        test(.hour, expected: -24)
+        test(.minute, expected: -1441)
+        test(.second, expected: -86485)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825580805.0) // 1996-02-29 00:00:05
+        end = Date(timeIntervalSince1970: 825580720.0) // 1996-02-28 23:58:40
+        test(.hour, expected: 0)
+        test(.minute, expected: -1)
+        test(.second, expected: -85)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 825580805.0) // 1996-02-29 00:00:05
+        end = Date(timeIntervalSince1970: 820569520.0) // 1996-01-01 23:58:40
+        test(.hour, expected: -1392)
+        test(.minute, expected: -83521)
+        test(.second, expected: -5011285)
+        test(.nanosecond, expected: 0)
+
+        start = Date(timeIntervalSince1970: 794044805.0) // 1995-03-01 00:00:05
+        end = Date(timeIntervalSince1970: 794044710.0) // 1995-02-28 23:58:30
+        test(.hour, expected: 0)
+        test(.minute, expected: -1)
+        test(.second, expected: -95)
+        test(.nanosecond, expected: 0)
+    }
+
+    func testDifference_DST() {
+        let calendar = _CalendarGregorian(identifier: .gregorian, timeZone: TimeZone(identifier: "America/Los_Angeles")!, locale: nil, firstWeekday: 1, minimumDaysInFirstWeek: 4, gregorianStartDate: nil)
+
+        var start: Date!
+        var end: Date!
+        func test(_ component: Calendar.Component, expected: Int, file: StaticString = #file, line: UInt = #line) {
+            let (actualDiff, _) = try! calendar.difference(inComponent: component, from: start, to: end)
+            XCTAssertEqual(actualDiff, expected, file: file, line: line)
+        }
+
+        start = Date(timeIntervalSince1970: 828867787.0) // 1996-04-07T01:03:07-0800
+        end = Date(timeIntervalSince1970: 828871387.0) // 1996-04-07T03:03:07-0700
+        test(.hour, expected: 1)
+        test(.minute, expected: 60)
+        test(.second, expected: 3600)
+
+        start = Date(timeIntervalSince1970: 828867787.0) // 1996-04-07T01:03:07-0800
+        end = Date(timeIntervalSince1970: 828874987.0) // 1996-04-07T04:03:07-0700
+        test(.hour, expected: 2)
+        test(.minute, expected: 120)
+        test(.second, expected: 7200)
+
+        start = Date(timeIntervalSince1970: 846403387.0) // 1996-10-27T01:03:07-0700
+        end = Date(timeIntervalSince1970: 846406987.0) // 1996-10-27T01:03:07-0800
+        test(.hour, expected: 1)
+        test(.minute, expected: 60)
+        test(.second, expected: 3600)
+
+        start = Date(timeIntervalSince1970: 846403387.0) // 1996-10-27T01:03:07-0700
+        end = Date(timeIntervalSince1970: 846410587.0) // 1996-10-27T02:03:07-0800
+        test(.hour, expected: 2)
+        test(.minute, expected: 120)
+        test(.second, expected: 7200)
+
+        // backwards
+
+        start = Date(timeIntervalSince1970: 828871387.0) // 1996-04-07T03:03:07-0700
+        end = Date(timeIntervalSince1970: 828867787.0) // 1996-04-07T01:03:07-0800
+        test(.hour, expected: -1)
+        test(.minute, expected: -60)
+        test(.second, expected: -3600)
+
+        start = Date(timeIntervalSince1970: 828874987.0) // 1996-04-07T04:03:07-0700
+        end = Date(timeIntervalSince1970: 828867787.0) // 1996-04-07T01:03:07-0800
+        test(.hour, expected: -2)
+        test(.minute, expected: -120)
+        test(.second, expected: -7200)
+
+        start = Date(timeIntervalSince1970: 846406987.0) // 1996-10-27T01:03:07-0800
+        end = Date(timeIntervalSince1970: 846403387.0) // 1996-10-27T01:03:07-0700
+        test(.hour, expected: -1)
+        test(.minute, expected: -60)
+        test(.second, expected: -3600)
+
+        start = Date(timeIntervalSince1970: 846410587.0) // 1996-10-27T02:03:07-0800
+        end = Date(timeIntervalSince1970: 846403387.0) // 1996-10-27T01:03:07-0700
+        test(.hour, expected: -2)
+        test(.minute, expected: -120)
+        test(.second, expected: -7200)
     }
 }
 

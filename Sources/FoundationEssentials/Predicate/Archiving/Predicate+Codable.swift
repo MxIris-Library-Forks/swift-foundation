@@ -12,18 +12,32 @@
 
 #if FOUNDATION_FRAMEWORK
 
-@available(macOS 14, iOS 17, tvOS 17, watchOS 10, *)
-extension Predicate : Codable {
-    public func encode(to encoder: Encoder) throws {
-        try self.encode(to: encoder, configuration: .standardConfiguration)
-    }
-    
-    public init(from decoder: Decoder) throws {
-        try self.init(from: decoder, configuration: .standardConfiguration)
+extension PredicateCodableConfiguration {
+    fileprivate static var `default`: Self {
+        // If we're encoding this predicate inside of another one, use the parent predicate's configuration since the "default" was specified here
+        if var parent = _ThreadLocal[.predicateArchivingState]?.configuration {
+            // When decoding sub-predicates, we don't want to overwrite inputs since they by definition must already be in the parent predicate's configuration
+            parent.shouldAddInputTypes = false
+            return parent
+        } else {
+            // Otherwise, the default is the standardConfiguration
+            return .standardConfiguration
+        }
     }
 }
 
-@available(macOS 14, iOS 17, tvOS 17, watchOS 10, *)
+@available(FoundationPredicate 0.1, *)
+extension Predicate : Codable {
+    public func encode(to encoder: Encoder) throws {
+        try self.encode(to: encoder, configuration: .default)
+    }
+    
+    public init(from decoder: Decoder) throws {
+        try self.init(from: decoder, configuration: .default)
+    }
+}
+
+@available(FoundationPredicate 0.1, *)
 extension Predicate : CodableWithConfiguration {
     public typealias EncodingConfiguration = PredicateCodableConfiguration
     public typealias DecodingConfiguration = PredicateCodableConfiguration

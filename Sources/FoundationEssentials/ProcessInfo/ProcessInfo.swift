@@ -22,10 +22,6 @@ import Darwin
 import Glibc
 #endif
 
-#if canImport(XPC)
-import XPC
-#endif
-
 #if !NO_PROCESS
 
 final class _ProcessInfo: Sendable {
@@ -48,6 +44,10 @@ final class _ProcessInfo: Sendable {
     }
 
     var environment: [String : String] {
+        _platform_shims_lock_environ()
+        defer {
+            _platform_shims_unlock_environ()
+        }
         var results: [String : String] = [:]
         guard var environments: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> =
                 _platform_shims_get_environ() else {
@@ -99,7 +99,7 @@ final class _ProcessInfo: Sendable {
     var userName: String {
 #if canImport(Darwin) || canImport(Glibc)
         // Darwin and Linux
-        let (euid, _) = self._getUGIDs()
+        let (euid, _) = Platform.getUGIDs()
         if let upwd = getpwuid(euid),
            let uname = upwd.pointee.pw_name {
             return String(cString: uname)
@@ -115,7 +115,7 @@ final class _ProcessInfo: Sendable {
 
     var fullUserName: String {
 #if canImport(Darwin) || canImport(Glibc)
-        let (euid, _) = self._getUGIDs()
+        let (euid, _) = Platform.getUGIDs()
         if let upwd = getpwuid(euid),
            let fullname = upwd.pointee.pw_gecos {
             return String(cString: fullname)
@@ -135,35 +135,6 @@ final class _ProcessInfo: Sendable {
         return (ticksPerSecond: tps, secondsPerTick: spt)
     }
 #endif
-
-    private func _getUGIDs() -> (euid: UInt32, egid: UInt32) {
-        if self._canEUIDsChange {
-            return Platform.getUGIDs()
-        } else {
-            return state.withLock {
-                if let cached = $0.UGIDs {
-                    return cached
-                }
-
-                $0.UGIDs = Platform.getUGIDs()
-                return $0.UGIDs!
-            }
-        }
-    }
-
-    private lazy var _canEUIDsChange: Bool = {
-#if os(macOS)
-        let euid = geteuid()
-        let uid = getuid()
-        guard let svuid = _getSVUID() else {
-            return true
-        }
-
-        return (uid == 0 || uid != euid || svuid != euid);
-#else
-        return true
-#endif
-    }()
 }
 
 // MARK: - Getting Host Information
@@ -315,7 +286,6 @@ extension _ProcessInfo {
 extension _ProcessInfo {
     struct State {
         var processName: String
-        var UGIDs: (euid: UInt32, egid: UInt32)?
     }
 
     private static func _getProcessName() -> String {

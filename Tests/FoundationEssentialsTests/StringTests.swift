@@ -362,16 +362,48 @@ final class StringTests : XCTestCase {
         }
         
 #if canImport(Darwin) || FOUNDATION_FRAMEWORK
-        // A string of length PATH_MAX-1 should perfectly fit in the buffer (with the null byte)
+        // The buffer should dynamically grow and not be limited to a size of PATH_MAX
         Array(repeating: "A", count: Int(PATH_MAX) - 1).joined().withFileSystemRepresentation { ptr in
             XCTAssertNotNil(ptr)
         }
         
-        // This will not fit in the buffer with the null byte
         Array(repeating: "A", count: Int(PATH_MAX)).joined().withFileSystemRepresentation { ptr in
-            XCTAssertNil(ptr)
+            XCTAssertNotNil(ptr)
+        }
+        
+        // The buffer should fit the scalars that expand the most during decomposition
+        for string in ["\u{1D160}", "\u{0CCB}", "\u{0390}"] {
+            string.withFileSystemRepresentation { ptr in
+                XCTAssertNotNil(ptr, "Could not create file system representation for \(string.debugDescription)")
+            }
         }
 #endif
+    }
+
+    func testLastPathComponent() {
+        XCTAssertEqual("".lastPathComponent, "")
+        XCTAssertEqual("a".lastPathComponent, "a")
+        XCTAssertEqual("/a".lastPathComponent, "a")
+        XCTAssertEqual("a/".lastPathComponent, "a")
+        XCTAssertEqual("/a/".lastPathComponent, "a")
+
+        XCTAssertEqual("a/b".lastPathComponent, "b")
+        XCTAssertEqual("/a/b".lastPathComponent, "b")
+        XCTAssertEqual("a/b/".lastPathComponent, "b")
+        XCTAssertEqual("/a/b/".lastPathComponent, "b")
+
+        XCTAssertEqual("a//".lastPathComponent, "a")
+        XCTAssertEqual("a////".lastPathComponent, "a")
+        XCTAssertEqual("/a//".lastPathComponent, "a")
+        XCTAssertEqual("/a////".lastPathComponent, "a")
+        XCTAssertEqual("//a//".lastPathComponent, "a")
+        XCTAssertEqual("/a/b//".lastPathComponent, "b")
+        XCTAssertEqual("//a//b////".lastPathComponent, "b")
+
+        XCTAssertEqual("/".lastPathComponent, "/")
+        XCTAssertEqual("//".lastPathComponent, "/")
+        XCTAssertEqual("/////".lastPathComponent, "/")
+        XCTAssertEqual("/./..//./..//".lastPathComponent, "..")
     }
 }
 

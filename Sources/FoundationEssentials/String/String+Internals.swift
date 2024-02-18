@@ -88,11 +88,19 @@ extension String {
         }
         return result != nil
     }
+    
+    private var maxFileSystemRepresentationSize: Int {
+        // The Darwin file system representation expands the UTF-8 contents to decomposed UTF-8 contents (only decomposing specific scalars)
+        // For any given scalar that we decompose, we will increase its UTF-8 length by at most a factor of 3 during decomposition
+        // (ex. U+0390 expands from 2 to 6 UTF-8 code-units, U+1D160 expands from 4 to 12 UTF-8 code-units)
+        // Therefore in the worst case scenario, the result will be the UTF-8 length multiplied by a factor of 3 plus an additional byte for the null byte
+        self.utf8.count * 3 + 1
+    }
     #endif
     
     package func withFileSystemRepresentation<R>(_ block: (UnsafePointer<CChar>?) throws -> R) rethrows -> R {
         #if canImport(Darwin) || FOUNDATION_FRAMEWORK
-        try withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(PATH_MAX)) { buffer in
+        try withUnsafeTemporaryAllocation(of: CChar.self, capacity: maxFileSystemRepresentationSize) { buffer in
             guard _fileSystemRepresentation(into: buffer) else {
                 return try block(nil)
             }
@@ -104,6 +112,33 @@ extension String {
         }
         #endif
     }
+    
+    package func withMutableFileSystemRepresentation<R>(_ block: (UnsafeMutablePointer<CChar>?) throws -> R) rethrows -> R {
+        #if canImport(Darwin) || FOUNDATION_FRAMEWORK
+        try withUnsafeTemporaryAllocation(of: CChar.self, capacity: maxFileSystemRepresentationSize) { buffer in
+            guard _fileSystemRepresentation(into: buffer) else {
+                return try block(nil)
+            }
+            return try block(buffer.baseAddress!)
+        }
+        #else
+        var mut = self
+        return try mut.withUTF8 { utf8Buffer in
+            // Leave space for a null byte at the end
+            try withUnsafeTemporaryAllocation(of: CChar.self, capacity: utf8Buffer.count + 1) { temporaryBuffer in
+                try utf8Buffer.withMemoryRebound(to: CChar.self) { utf8CCharBuffer in
+                    let nullByteIndex = temporaryBuffer.initialize(fromContentsOf: utf8CCharBuffer)
+                    // Null-terminate
+                    temporaryBuffer.initializeElement(at: nullByteIndex, to: CChar(0))
+                    let result = try block(temporaryBuffer.baseAddress)
+                    temporaryBuffer.prefix(through: nullByteIndex).deinitialize()
+                    return result
+                }
+            }
+        }
+        #endif
+    }
+
 }
 
 extension UnsafeBufferPointer {
@@ -242,8 +277,8 @@ extension NSString {
                 }
             }
             
-            let next = buffer.initialize(fromContentsOf: utf8Buffer)
-            guard next < buffer.endIndex else {
+            var (leftoverIterator, next) = buffer.initialize(from: utf8Buffer)
+            guard leftoverIterator.next() == nil && next < buffer.endIndex else {
                 return false
             }
             buffer[next] = 0
