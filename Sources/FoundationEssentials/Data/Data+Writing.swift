@@ -11,11 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #if FOUNDATION_FRAMEWORK
-@_implementationOnly import _ForSwiftFoundation
-@_implementationOnly import _CShims
-#else
-package import _CShims
+internal import _ForSwiftFoundation
+internal import DarwinPrivate // for VREG
 #endif
+
+internal import _CShims
 
 #if canImport(Darwin)
 import Darwin

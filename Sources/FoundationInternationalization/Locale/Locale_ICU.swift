@@ -16,13 +16,12 @@ import FoundationEssentials
 
 #if FOUNDATION_FRAMEWORK
 // for CFXPreferences call
-@_implementationOnly import _ForSwiftFoundation
+internal import _ForSwiftFoundation
 // For Logger
-@_implementationOnly import os
-@_implementationOnly import FoundationICU
-#else
-package import FoundationICU
+internal import os
 #endif
+
+internal import FoundationICU
 
 #if canImport(Glibc)
 import Glibc
@@ -1340,6 +1339,35 @@ internal final class _LocaleICU: _LocaleProtocol, Sendable {
     }
 
     // MARK: Min days in first week
+
+    var minimumDaysInFirstWeek: Int {
+        lock.withLock { state in
+            if let minDays = state.minimalDaysInFirstWeek {
+                return minDays
+            }
+
+            // Check prefs
+            if let minDays = forceMinDaysInFirstWeek(_lockedCalendarIdentifier(&state)) {
+                state.minimalDaysInFirstWeek = minDays
+                return minDays
+            }
+
+            // Use locale's value
+            var status = U_ZERO_ERROR
+            let cal = ucal_open(nil, 0, identifier, UCAL_DEFAULT, &status)
+            defer { ucal_close(cal) }
+
+            guard status.isSuccess else {
+                // fallback to 001's value
+                state.minimalDaysInFirstWeek = 1
+                return 1
+            }
+
+            let minDays = Int(ucal_getAttribute(cal, UCAL_MINIMAL_DAYS_IN_FIRST_WEEK))
+            state.minimalDaysInFirstWeek = minDays
+            return minDays
+        }
+    }
 
     func forceMinDaysInFirstWeek(_ calendar: Calendar.Identifier) -> Int? {
         if let prefs {

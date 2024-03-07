@@ -28,7 +28,7 @@ import TestSupport
 @testable import Foundation
 #endif
 
-#if canImport(_CShims)
+#if !FOUNDATION_FRAMEWORK
 import _CShims
 #endif
 
@@ -166,7 +166,7 @@ final class JSONEncoderTests : XCTestCase {
     func x_testEncodingDate() {
 
         func formattedLength(of value: Double) -> Int {
-        #if canImport(_CShims)
+        #if !FOUNDATION_FRAMEWORK
             return Int(_stringshims_get_formatted_str_length(value))
         #else
             let empty = UnsafeMutablePointer<Int8>.allocate(capacity: 0)
@@ -3338,7 +3338,7 @@ private struct CodableTypeWithConfiguration : CodableWithConfiguration, Equatabl
 // MARK: - Helper Types
 
 /// A key type which can take on any string or integer value.
-/// This needs to mirror _JSONKey.
+/// This needs to mirror _CodingKey.
 fileprivate struct _TestKey : CodingKey {
   var stringValue: String
   var intValue: Int?
