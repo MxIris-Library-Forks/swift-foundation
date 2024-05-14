@@ -199,6 +199,16 @@ extension String {
         return result
     }
 
+    internal func merging(relativePath: String) -> String {
+        guard relativePath.utf8.first != UInt8(ascii: "/") else {
+            return relativePath
+        }
+        guard let basePathEnd = self.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+            return relativePath
+        }
+        return self[...basePathEnd] + relativePath
+    }
+
     internal var removingDotSegments: String {
         let input = self.utf8
         guard !input.isEmpty else {
@@ -546,7 +556,7 @@ extension String {
         }
         return result
     }
-    
+
     var standardizingPath: String {
         expandingTildeInPath._standardizingPath
     }
@@ -584,10 +594,6 @@ extension String {
         }
         let userDir = String.homeDirectoryPath(forUser: user)
         return userDir + self[firstSlash...]
-    }
-    
-    private var _isAbsolutePath: Bool {
-        first == "~" || first == "/"
     }
     
     private static func _resolvingSymlinksInPathUsingFullPathAttribute(_ fsRep: UnsafePointer<CChar>) -> String? {
@@ -636,7 +642,8 @@ extension String {
             // If not using the cache (which may not require hitting the disk at all if it's warm), try getting the full path from getattrlist.
             // If it succeeds, this approach always returns an absolute path starting from the root. Since this function returns relative paths when given a relative path to a relative symlink, dont use this approach unless the path is absolute.
             
-            if self._isAbsolutePath, let resolved = Self._resolvingSymlinksInPathUsingFullPathAttribute(fsPtr) {
+            var path = self
+            if URL.isAbsolute(standardizing: &path), let resolved = Self._resolvingSymlinksInPathUsingFullPathAttribute(fsPtr) {
                 return resolved
             }
             
@@ -725,4 +732,24 @@ extension String {
         return result._standardizingPath
     }
     #endif // !NO_FILESYSTEM
+}
+
+extension StringProtocol {
+    internal func replacing(_ a: UInt8, with b: UInt8) -> String {
+        var utf8Array = Array(self.utf8)
+        var didReplace = false
+        // ~300x faster than Array.replace([UInt8], with: [UInt8]) for one element
+        for i in 0..<utf8Array.count {
+            if utf8Array[i] == a {
+                utf8Array[i] = b
+                didReplace = true
+            }
+        }
+        guard didReplace else {
+            return String(self)
+        }
+        return String(unsafeUninitializedCapacity: utf8Array.count) { buffer in
+            buffer.initialize(fromContentsOf: utf8Array)
+        }
+    }
 }
