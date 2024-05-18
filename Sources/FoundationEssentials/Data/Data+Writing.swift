@@ -164,13 +164,14 @@ private func createTemporaryFile(at destinationPath: String, inPath: PathOrURL, 
             guard _mktemp_s(templateFileSystemRep, template.count + 1) == 0 else {
                 throw CocoaError.errorWithFilePath(inPath, errno: errno, reading: false)
             }
+            let flags: CInt = _O_CREAT | _O_EXCL | _O_RDWR
 #else
             guard mktemp(templateFileSystemRep) != nil else {
                 throw CocoaError.errorWithFilePath(inPath, errno: errno, reading: false)
             }
+            let flags: CInt = O_CREAT | O_EXCL | O_RDWR
 #endif
-            
-            let flags: Int32 = O_CREAT | O_EXCL | O_RDWR
+
             let fd = openFileDescriptorProtected(path: templateFileSystemRep, flags: flags, options: options)
             if fd >= 0 {
                 // Got a good fd
@@ -336,7 +337,7 @@ private func writeToFileAux(path inPath: PathOrURL, buffer: UnsafeRawBufferPoint
             throw CocoaError.errorWithFilePath(inPath, errno: errno, reading: false)
         }
 
-        defer { _close(fd) }
+        defer { if fd >= 0 { _close(fd) } }
 
         let callback = (reportProgress && Progress.current() != nil) ? Progress(totalUnitCount: Int64(buffer.count)) : nil
 
@@ -360,6 +361,9 @@ private func writeToFileAux(path inPath: PathOrURL, buffer: UnsafeRawBufferPoint
 
         // We're done now
         guard let auxPath else { return }
+
+        _close(fd)
+        fd = -1
 
         try auxPath.withNTPathRepresentation { pwszAuxiliaryPath in
             guard MoveFileExW(pwszAuxiliaryPath, pwszPath, MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) else {
