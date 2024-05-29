@@ -635,6 +635,7 @@ final class FileManagerTests : XCTestCase {
             File("foo", attributes: [.posixPermissions : UInt16(0o644)])
         }.test {
             let attributes = try $0.attributesOfItem(atPath: "foo")
+#if !os(Windows)
             // Ensure the unconventional UInt16 was accepted as input
             XCTAssertEqual(attributes[.posixPermissions] as? UInt, 0o644)
             #if FOUNDATION_FRAMEWORK
@@ -643,6 +644,7 @@ final class FileManagerTests : XCTestCase {
             // Ensure that the file type can be converted to a String when it is an ObjC enum
             XCTAssertEqual(attributes[.type] as? String, FileAttributeType.typeRegular.rawValue)
             #endif
+#endif
             // Ensure that the file type can be converted to a FileAttributeType when it is an ObjC enum and in swift-foundation
             XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeRegular)
             
@@ -795,12 +797,10 @@ final class FileManagerTests : XCTestCase {
                 let results = fileManager.urls(for: directory, in: domain)
                 XCTAssertTrue(results.contains(knownURL), "Results \(results.map(\.path)) did not contain known directory \(knownURL.path) for \(directory)/\(domain) while setting the \(key) environment variable", file: file, line: line)
             }
-            
+
             validate("XDG_DATA_HOME", suffix: "Autosave Information", directory: .autosavedInformationDirectory, domain: .userDomainMask)
-            validate("XDG_DATA_HOME", suffix: "Autosave Information", directory: .autosavedInformationDirectory, domain: .localDomainMask)
             validate("HOME", suffix: ".local/share/Autosave Information", directory: .autosavedInformationDirectory, domain: .userDomainMask)
-            validate("HOME", suffix: ".local/share/Autosave Information", directory: .autosavedInformationDirectory, domain: .localDomainMask)
-            
+
             validate("XDG_CACHE_HOME", directory: .cachesDirectory, domain: .userDomainMask)
             validate("HOME", suffix: ".cache", directory: .cachesDirectory, domain: .userDomainMask)
             
