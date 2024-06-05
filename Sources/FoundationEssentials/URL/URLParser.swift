@@ -160,7 +160,7 @@ package protocol UIDNAHook {
 
 internal struct RFC3986Parser: URLParserProtocol {
     static let kind: URLParserKind = .RFC3986
-    static var uidnaHook: UIDNAHook.Type? = {
+    static let uidnaHook: UIDNAHook.Type? = {
         #if FOUNDATION_FRAMEWORK && !canImport(_FoundationICU)
         nil
         #elseif FOUNDATION_FRAMEWORK
@@ -659,7 +659,7 @@ internal struct RFC3986Parser: URLParserProtocol {
 
         let path = parseInfo.path
         if invalidComponents.contains(.path) {
-            finalURLString += percentEncodePath(path)
+            finalURLString += percentEncode(path, component: .path)!
         } else {
             finalURLString += path
         }
