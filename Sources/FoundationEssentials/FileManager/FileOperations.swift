@@ -125,33 +125,6 @@ extension CocoaError {
 #endif
 }
 
-#if canImport(Darwin)
-@_cdecl("_FileRemove_ConfirmCallback")
-internal func _FileRemove_ConfirmCallback(_ state: removefile_state_t, _ pathPtr: UnsafePointer<CChar>, _ contextPtr: UnsafeRawPointer) -> Int {
-    let context = Unmanaged<_FileOperations._FileRemoveContext>.fromOpaque(contextPtr).takeUnretainedValue()
-    let path = String(cString: pathPtr)
-    
-    // Proceed unless the delegate says to skip
-    return (context.manager?._shouldRemoveItemAtPath(path) ?? true) ? REMOVEFILE_PROCEED : REMOVEFILE_SKIP
-}
-
-@_cdecl("_FileRemove_ErrorCallback")
-internal func _FileRemove_ErrorCallback(_ state: removefile_state_t, _ pathPtr: UnsafePointer<CChar>, _ contextPtr: UnsafeRawPointer) -> Int {
-    let context = Unmanaged<_FileOperations._FileRemoveContext>.fromOpaque(contextPtr).takeUnretainedValue()
-    let path = String(cString: pathPtr)
-    
-    let err = CocoaError.removeFileError(Int32(_filemanagershims_removefile_state_get_errnum(state)), path)
-    
-    // Proceed only if the delegate says so
-    if context.manager?._shouldProceedAfter(error: err, removingItemAtPath: path) ?? false {
-        return REMOVEFILE_PROCEED
-    } else {
-        context.error = err
-        return REMOVEFILE_STOP
-    }
-}
-#endif
-
 extension FileManager {
     fileprivate func _shouldProceedAfter(error: Error, removingItemAtPath path: String) -> Bool {
         var delegateResponse: Bool?
@@ -317,6 +290,25 @@ private extension LinkOrCopyDelegate {
     var extraCopyFileFlags: Int32 { 0 }
 }
 
+#if canImport(Darwin)
+private typealias RemoveFileCallback = @convention(c) (removefile_state_t, UnsafePointer<CChar>, UnsafeRawPointer) -> Int
+
+extension removefile_state_t {
+    fileprivate var errnum: Int32 {
+        var num: Int32 = 0
+        removefile_state_get(self, UInt32(REMOVEFILE_STATE_ERRNO), &num)
+        return num
+    }
+    
+    fileprivate func attachCallbacks(context: UnsafeRawPointer?, confirm: RemoveFileCallback, error: RemoveFileCallback) {
+        removefile_state_set(self, UInt32(REMOVEFILE_STATE_CONFIRM_CONTEXT), context)
+        removefile_state_set(self, UInt32(REMOVEFILE_STATE_CONFIRM_CALLBACK), unsafeBitCast(confirm, to: UnsafeRawPointer.self))
+        removefile_state_set(self, UInt32(REMOVEFILE_STATE_ERROR_CONTEXT), context)
+        removefile_state_set(self, UInt32(REMOVEFILE_STATE_ERROR_CALLBACK), unsafeBitCast(error, to: UnsafeRawPointer.self))
+    }
+}
+#endif
+
 enum _FileOperations {
     // MARK: removefile
 
@@ -325,6 +317,12 @@ enum _FileOperations {
         try path.withNTPathRepresentation {
             var faAttributes: WIN32_FILE_ATTRIBUTE_DATA = .init()
             guard GetFileAttributesExW($0, GetFileExInfoStandard, &faAttributes) else {
+                // NOTE: in the case that the 'stat' failed, we want to ensure
+                // that we query if the item should be removed. If the item
+                // should not be removed, we can continue, else we should check
+                // if we should proceed after the error.
+                guard filemanager?._shouldRemoveItemAtPath(path) ?? true else { return }
+
                 let error = CocoaError.removeFileError(GetLastError(), path)
                 guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: path) ?? false) else {
                     throw error
@@ -350,47 +348,55 @@ enum _FileOperations {
                     return
                 }
             }
-        }
 
-        var stack = [path]
-        while let directory = stack.popLast() {
-            guard filemanager?._shouldRemoveItemAtPath(directory) ?? true else { continue }
-            try directory.withNTPathRepresentation {
-                if RemoveDirectoryW($0) { return }
-                let dwError: DWORD = GetLastError()
-                guard dwError == ERROR_DIR_NOT_EMPTY else {
-                    let error = CocoaError.removeFileError(dwError, directory)
-                    guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: directory) ?? false) else {
-                        throw error
+            var stack = [(path, false)]
+            while let (directory, checked) = stack.popLast() {
+                try directory.withNTPathRepresentation {
+                    let ntpath = String(decodingCString: $0, as: UTF16.self)
+
+                    guard checked || filemanager?._shouldRemoveItemAtPath(ntpath) ?? true else { return }
+
+                    if RemoveDirectoryW($0) { return }
+                    var dwError: DWORD = GetLastError()
+                    guard dwError == ERROR_DIR_NOT_EMPTY else {
+                        let error = CocoaError.removeFileError(dwError, directory)
+                        guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: ntpath) ?? false) else {
+                            throw error
+                        }
+                        return
                     }
-                    return
-                }
-                stack.append(directory)
+                    stack.append((directory, true))
 
-                for entry in _Win32DirectoryContentsSequence(path: directory, appendSlashForDirectory: false, prefix: [directory]) {
-                    try entry.fileNameWithPrefix.withNTPathRepresentation {
-                        if entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY,
-                                entry.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != FILE_ATTRIBUTE_REPARSE_POINT {
-                            stack.append(entry.fileNameWithPrefix)
-                        } else {
-                            if entry.dwFileAttributes & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
-                                guard SetFileAttributesW($0, entry.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY) else {
-                                    throw CocoaError.removeFileError(GetLastError(), path)
-                                }
-                            }
-                            guard filemanager?._shouldRemoveItemAtPath(entry.fileNameWithPrefix) ?? true else { return }
-                            if entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
-                                if !RemoveDirectoryW($0) {
-                                    let error = CocoaError.removeFileError(GetLastError(), entry.fileName)
-                                    guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: entry.fileNameWithPrefix) ?? false) else {
-                                        throw error
-                                    }
+                    for entry in _Win32DirectoryContentsSequence(path: directory, appendSlashForDirectory: false, prefix: [directory]) {
+                        try entry.fileNameWithPrefix.withNTPathRepresentation {
+                            let ntpath = String(decodingCString: $0, as: UTF16.self)
+
+                            if entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY,
+                                    entry.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != FILE_ATTRIBUTE_REPARSE_POINT {
+                                if filemanager?._shouldRemoveItemAtPath(ntpath) ?? true {
+                                    stack.append((ntpath, true))
                                 }
                             } else {
-                                if !DeleteFileW($0) {
-                                    let error = CocoaError.removeFileError(GetLastError(), entry.fileName)
-                                    guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: entry.fileNameWithPrefix) ?? false) else {
-                                        throw error
+                                if entry.dwFileAttributes & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
+                                    guard SetFileAttributesW($0, entry.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY) else {
+                                        throw CocoaError.removeFileError(GetLastError(), ntpath)
+                                    }
+                                }
+                                if entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
+                                    guard filemanager?._shouldRemoveItemAtPath(ntpath) ?? true else { return }
+                                    if !RemoveDirectoryW($0) {
+                                        let error = CocoaError.removeFileError(GetLastError(), entry.fileName)
+                                        guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: entry.fileNameWithPrefix) ?? false) else {
+                                            throw error
+                                        }
+                                    }
+                                } else {
+                                    guard filemanager?._shouldRemoveItemAtPath(ntpath) ?? true else { return }
+                                    if !DeleteFileW($0) {
+                                        let error = CocoaError.removeFileError(GetLastError(), entry.fileName)
+                                        guard (filemanager?._shouldProceedAfter(error: error, removingItemAtPath: entry.fileNameWithPrefix) ?? false) else {
+                                            throw error
+                                        }
                                     }
                                 }
                             }
@@ -421,20 +427,39 @@ enum _FileOperations {
     }
     
     private static func _removeFile(_ pathPtr: UnsafePointer<CChar>, _ pathStr: String, with fileManager: FileManager?) throws {
-        let state = removefile_state_alloc()
+        let state = removefile_state_alloc()!
         defer { removefile_state_free(state) }
         
         let ctx = _FileRemoveContext(fileManager)
         try withExtendedLifetime(ctx) {
             let ctxPtr = Unmanaged.passUnretained(ctx).toOpaque()
-            _filemanagershims_removefile_attach_callbacks(state, ctxPtr)
+            state.attachCallbacks(context: ctxPtr, confirm: { _, pathPtr, contextPtr in
+                let context = Unmanaged<_FileOperations._FileRemoveContext>.fromOpaque(contextPtr).takeUnretainedValue()
+                let path = String(cString: pathPtr)
+                
+                // Proceed unless the delegate says to skip
+                return (context.manager?._shouldRemoveItemAtPath(path) ?? true) ? REMOVEFILE_PROCEED : REMOVEFILE_SKIP
+            }, error: { state, pathPtr, contextPtr in
+                let context = Unmanaged<_FileOperations._FileRemoveContext>.fromOpaque(contextPtr).takeUnretainedValue()
+                let path = String(cString: pathPtr)
+                
+                let err = CocoaError.removeFileError(state.errnum, path)
+                
+                // Proceed only if the delegate says so
+                if context.manager?._shouldProceedAfter(error: err, removingItemAtPath: path) ?? false {
+                    return REMOVEFILE_PROCEED
+                } else {
+                    context.error = err
+                    return REMOVEFILE_STOP
+                }
+            })
             
             let err = removefile(pathPtr, state, removefile_flags_t(REMOVEFILE_RECURSIVE))
             if err < 0 {
                 if errno != 0 {
                     throw CocoaError.removeFileError(Int32(errno), pathStr)
                 }
-                throw CocoaError.removeFileError(Int32(_filemanagershims_removefile_state_get_errnum(state)), pathStr)
+                throw CocoaError.removeFileError(state.errnum, pathStr)
             }
             
             if let error = ctx.error {
