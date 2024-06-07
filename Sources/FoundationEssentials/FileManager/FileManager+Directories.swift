@@ -159,6 +159,13 @@ extension _FileManagerImpl {
     
     func subpathsOfDirectory(atPath path: String) throws -> [String] {
 #if os(Windows)
+        try path.withNTPathRepresentation {
+            var faAttributes: WIN32_FILE_ATTRIBUTE_DATA = .init()
+            guard GetFileAttributesExW($0, GetFileExInfoStandard, &faAttributes) else {
+                throw CocoaError.errorWithFilePath(path, win32: GetLastError(), reading: true)
+            }
+        }
+
         var results: [String] = []
         for item in _Win32DirectoryContentsSequence(path: path, appendSlashForDirectory: true) {
             results.append(item.fileName)
@@ -176,7 +183,7 @@ extension _FileManagerImpl {
                     var pwszFullPath: PWSTR? = nil
                     _ = PathAllocCombine(item.fileName, $0, PATHCCH_ALLOW_LONG_PATHS, &pwszFullPath)
                     defer { LocalFree(pwszFullPath) }
-                    return String(decodingCString: pwszFullPath!, as: UTF16.self).standardizingPath
+                    return String(decodingCString: pwszFullPath!, as: UTF16.self).standardizingPath.replacing("\\", with: "/")
                  })
             }
         }
