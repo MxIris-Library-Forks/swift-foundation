@@ -41,6 +41,34 @@ let concurrencyChecking: [SwiftSetting] = [
     .enableUpcomingFeature("InferSendableFromCaptures")
 ]
 
+var dependencies: [Package.Dependency] {
+    if Context.environment["SWIFTCI_USE_LOCAL_DEPS"] != nil {
+        [
+            .package(
+                name: "swift-collections",
+                path: "../swift-collections"),
+            .package(
+                name: "swift-foundation-icu",
+                path: "../swift-foundation-icu"),
+            .package(
+                name: "swift-syntax",
+                path: "../swift-syntax")
+        ]
+    } else {
+        [
+            .package(
+                url: "https://github.com/apple/swift-collections",
+                from: "1.1.0"),
+            .package(
+                url: "https://github.com/apple/swift-foundation-icu",
+                exact: "0.0.8"),
+            .package(
+                url: "https://github.com/apple/swift-syntax",
+                from: "600.0.0-latest")
+        ]
+    }
+}
+
 let package = Package(
     name: "FoundationPreview",
     platforms: [.macOS("13.3"), .iOS("16.4"), .tvOS("16.4"), .watchOS("9.4")],
@@ -50,17 +78,7 @@ let package = Package(
         .library(name: "FoundationEssentials", targets: ["FoundationEssentials"]),
         .library(name: "FoundationInternationalization", targets: ["FoundationInternationalization"]),
     ],
-    dependencies: [
-        .package(
-            url: "https://github.com/apple/swift-collections",
-            from: "1.1.0"),
-        .package(
-            url: "https://github.com/apple/swift-foundation-icu",
-            exact: "0.0.8"),
-        .package(
-            url: "https://github.com/apple/swift-syntax.git",
-            from: "600.0.0-latest")
-    ],
+    dependencies: dependencies,
     targets: [
         // Foundation (umbrella)
         .target(
@@ -71,8 +89,8 @@ let package = Package(
             ],
             path: "Sources/Foundation"),
 
-        // _CShims (Internal)
-        .target(name: "_CShims",
+        // _FoundationCShims (Internal)
+        .target(name: "_FoundationCShims",
                 cSettings: [.define("_CRT_SECURE_NO_WARNINGS",
                                     .when(platforms: [.windows]))]),
 
@@ -86,7 +104,7 @@ let package = Package(
         .target(
           name: "FoundationEssentials",
           dependencies: [
-            "_CShims",
+            "_FoundationCShims",
             "FoundationMacros",
             .product(name: "_RopeModule", package: "swift-collections"),
             .product(name: "OrderedCollections", package: "swift-collections"),
@@ -134,7 +152,7 @@ let package = Package(
             name: "FoundationInternationalization",
             dependencies: [
                 .target(name: "FoundationEssentials"),
-                .target(name: "_CShims"),
+                .target(name: "_FoundationCShims"),
                 .product(name: "_FoundationICU", package: "swift-foundation-icu")
             ],
             exclude: [
