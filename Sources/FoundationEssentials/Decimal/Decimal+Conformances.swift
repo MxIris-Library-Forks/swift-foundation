@@ -17,19 +17,19 @@ internal import _ForSwiftFoundation
 @available(macOS 10.10, iOS 8.0, watchOS 2.0, tvOS 9.0, *)
 extension Decimal : CustomStringConvertible {
     public init?(string: __shared String, locale: __shared Locale? = nil) {
-        // Substitute the decimal sign if needed
-        var decimalString = string
-        if let decimalSeparator = locale?.decimalSeparator {
-            decimalString = decimalString.replacing(decimalSeparator, with: ".")
-        }
-        guard let value = Decimal.decimal(from: decimalString.utf8, matchEntireString: false).result else {
+        let decimalSeparator = locale?.decimalSeparator ?? "."
+        guard let value = Decimal._decimal(
+            from: string.utf8,
+            decimalSeparator: decimalSeparator.utf8,
+            matchEntireString: false
+        ).result else {
             return nil
         }
         self = value
     }
 
     public var description: String {
-        return self.toString()
+        return self._toString()
     }
 }
 
@@ -239,7 +239,7 @@ extension Decimal /* : FloatingPoint */ {
         self = significand
         do {
             self = try significand._multiplyByPowerOfTen(
-                power: exponent, roundingMode: .plain)
+                power: Int(Int16(clamping: exponent)), roundingMode: .plain)
         } catch {
             guard let actual = error as? Decimal._CalculationError else {
                 self = .nan
@@ -456,28 +456,6 @@ extension Decimal: Hashable {
             default: fatalError("Invalid index \(index) for _mantissa")
             }
         }
-    }
-
-    internal var doubleValue: Double {
-        if _length == 0 {
-            return _isNegative == 1 ? Double.nan : 0
-        }
-
-        var d = 0.0
-        for idx in (0..<min(_length, 8)).reversed() {
-            d = d * 65536 + Double(self[idx])
-        }
-
-        if _exponent < 0 {
-            for _ in _exponent..<0 {
-                d /= 10.0
-            }
-        } else {
-            for _ in 0..<_exponent {
-                d *= 10.0
-            }
-        }
-        return _isNegative != 0 ? -d : d
     }
 
     public func hash(into hasher: inout Hasher) {
