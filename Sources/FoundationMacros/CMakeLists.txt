@@ -43,11 +43,9 @@ target_link_libraries(FoundationMacros PUBLIC
     SwiftSyntax::SwiftSyntaxBuilder
 )
 
-target_link_options(FoundationMacros PRIVATE
-    "SHELL:-no-toolchain-stdlib-rpath")
-
 set_target_properties(FoundationMacros PROPERTIES
-    INSTALL_RPATH "$ORIGIN")
+    INSTALL_RPATH "$ORIGIN"
+    INSTALL_REMOVE_ENVIRONMENT_RPATH ON)
 
 target_compile_options(FoundationMacros PRIVATE -parse-as-library)
 target_compile_options(FoundationMacros PRIVATE
@@ -59,3 +57,5 @@ install(TARGETS FoundationMacros
     ARCHIVE DESTINATION lib/swift/host/plugins
     LIBRARY DESTINATION lib/swift/host/plugins
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES $<TARGET_LINKER_FILE:FoundationMacros>
+  DESTINATION lib)
