@@ -18,6 +18,8 @@ import Android
 import Glibc
 #elseif os(Windows)
 import WinSDK
+#elseif os(WASI)
+import WASILibc
 #endif
 
 internal import _FoundationCShims
@@ -374,7 +376,7 @@ extension String {
                     guard GetEnvironmentVariableW(pwszVariable, $0.baseAddress, dwLength) == dwLength - 1 else {
                         return nil
                     }
-                    return String(decoding: $0, as: UTF16.self)
+                    return String(decodingCString: $0.baseAddress!, as: UTF16.self)
                 }
             }
         }
@@ -436,7 +438,7 @@ extension String {
             guard GetUserProfileDirectoryW(hToken, $0.baseAddress, &dwcchSize) else {
                 fatalError("unable to query user profile directory")
             }
-            return String(decoding: $0, as: UTF16.self)
+            return String(decodingCString: $0.baseAddress!, as: UTF16.self)
         }
 #else
         #if targetEnvironment(simulator)

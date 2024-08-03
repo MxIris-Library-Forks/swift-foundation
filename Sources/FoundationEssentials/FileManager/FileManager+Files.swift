@@ -26,6 +26,9 @@ internal import _FoundationCShims
 #elseif os(Windows)
 import CRT
 import WinSDK
+#elseif os(WASI)
+internal import _FoundationCShims
+import WASILibc
 #endif
 
 extension Date {
@@ -120,8 +123,8 @@ public protocol _NSNumberInitializer {
 
 @_spi(SwiftCorelibsFoundation)
 dynamic public func _nsNumberInitializer() -> (any _NSNumberInitializer.Type)? {
-    // TODO: return nil here after swift-corelibs-foundation begins dynamically replacing this function
-    _typeByName("Foundation._FoundationNSNumberInitializer") as? any _NSNumberInitializer.Type
+    // Dynamically replaced by swift-corelibs-foundation
+    return nil
 }
 #endif
 
