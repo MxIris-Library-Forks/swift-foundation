@@ -28,6 +28,9 @@ import Android
 #elseif canImport(Glibc)
 import Glibc
 internal import _FoundationCShims
+#elseif canImport(Musl)
+import Musl
+internal import _FoundationCShims
 #elseif os(Windows)
 import CRT
 import WinSDK
@@ -48,19 +51,19 @@ extension FILETIME {
 #if !os(Windows)
 extension stat {
     var isDirectory: Bool {
-        (self.st_mode & S_IFMT) == S_IFDIR
+        (mode_t(self.st_mode) & S_IFMT) == S_IFDIR
     }
     
     var isRegular: Bool {
-        (self.st_mode & S_IFMT) == S_IFREG
+        (mode_t(self.st_mode) & S_IFMT) == S_IFREG
     }
     
     var isSymbolicLink: Bool {
-        (self.st_mode & S_IFMT) == S_IFLNK
+        (mode_t(self.st_mode) & S_IFMT) == S_IFLNK
     }
     
     var isSpecial: Bool {
-        let type = self.st_mode & S_IFMT
+        let type = mode_t(self.st_mode) & S_IFMT
         return type == S_IFBLK || type == S_IFCHR
     }
 }

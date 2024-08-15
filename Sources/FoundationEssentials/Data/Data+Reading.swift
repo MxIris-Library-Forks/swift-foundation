@@ -22,6 +22,8 @@ import Darwin
 import Android
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #elseif os(Windows)
 import CRT
 import WinSDK
@@ -32,7 +34,7 @@ import WASILibc
 func _fgetxattr(_ fd: Int32, _ name: UnsafePointer<CChar>!, _ value: UnsafeMutableRawPointer!, _ size: Int, _ position: UInt32, _ options: Int32) -> Int {
 #if canImport(Darwin)
     return fgetxattr(fd, name, value, size, position, options)
-#elseif canImport(Glibc)
+#elseif canImport(Glibc) || canImport(Musl)
     return fgetxattr(fd, name, value, size)
 #else
     return -1
@@ -325,7 +327,7 @@ internal func readBytesFromFile(path inPath: PathOrURL, reportProgress: Bool, ma
     }
     
     let fileSize = min(Int(clamping: filestat.st_size), maxLength ?? Int.max)
-    let fileType = filestat.st_mode & S_IFMT
+    let fileType = mode_t(filestat.st_mode) & S_IFMT
 #if !NO_FILESYSTEM
     let shouldMap = shouldMapFileDescriptor(fd, path: inPath, options: options)
 #else

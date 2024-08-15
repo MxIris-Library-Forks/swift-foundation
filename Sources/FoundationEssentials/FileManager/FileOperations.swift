@@ -16,6 +16,8 @@ import Darwin
 import Android
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #elseif os(Windows)
 import CRT
 import WinSDK
@@ -867,7 +869,7 @@ enum _FileOperations {
 
         #if !os(WASI) // WASI doesn't have fchmod for now
         // Set the file permissions using fchmod() instead of when open()ing to avoid umask() issues
-        let permissions = fileInfo.st_mode & ~S_IFMT
+        let permissions = mode_t(fileInfo.st_mode) & ~S_IFMT
         guard fchmod(dstfd, permissions) == 0 else {
             try delegate.throwIfNecessary(errno, String(cString: srcPtr), String(cString: dstPtr))
             return
