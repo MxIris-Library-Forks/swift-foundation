@@ -366,7 +366,7 @@ extension String {
         return String(cString: output)
     }
 
-    #if !NO_FILESYSTEM
+#if !NO_FILESYSTEM
     internal static func homeDirectoryPath(forUser user: String? = nil) -> String {
 #if os(Windows)
         if let user {
@@ -377,12 +377,17 @@ extension String {
                 
                 return fallback
             }
+
+            guard !user.isEmpty else {
+                return fallbackUserDirectory()
+            }
             
             return user.withCString(encodedAs: UTF16.self) { pwszUserName in
                 var cbSID: DWORD = 0
                 var cchReferencedDomainName: DWORD = 0
                 var eUse: SID_NAME_USE = SidTypeUnknown
-                guard LookupAccountNameW(nil, pwszUserName, nil, &cbSID, nil, &cchReferencedDomainName, &eUse) else {
+                LookupAccountNameW(nil, pwszUserName, nil, &cbSID, nil, &cchReferencedDomainName, &eUse)
+                guard cbSID > 0 else {
                     return fallbackUserDirectory()
                 }
 
@@ -397,10 +402,11 @@ extension String {
                             fatalError("unable to convert SID to string for user \(user)")
                         }
 
-                        return #"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\#\(String(decodingCString: pwszSID!, as: UTF16.self))"#.withCString(encodedAs: UTF16.self) { pwszKeyPath in
+                        return #"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\\#(String(decodingCString: pwszSID!, as: UTF16.self))"#.withCString(encodedAs: UTF16.self) { pwszKeyPath in
                             return "ProfileImagePath".withCString(encodedAs: UTF16.self) { pwszKey in
                                 var cbData: DWORD = 0
-                                guard RegGetValueW(HKEY_LOCAL_MACHINE, pwszKeyPath, pwszKey, RRF_RT_REG_SZ, nil, nil, &cbData) == ERROR_SUCCESS else {
+                                RegGetValueW(HKEY_LOCAL_MACHINE, pwszKeyPath, pwszKey, RRF_RT_REG_SZ, nil, nil, &cbData)
+                                guard cbData > 0 else {
                                     fatalError("unable to query ProfileImagePath for user \(user)")
                                 }
                                 return withUnsafeTemporaryAllocation(of: WCHAR.self, capacity: Int(cbData)) { pwszData in
@@ -523,8 +529,10 @@ extension String {
 #else
         return "/tmp/"
 #endif
-#endif
+#endif // os(Windows)
     }
+#endif // !NO_FILESYSTEM
+
     /// Replaces any number of sequential `/`
     /// characters with /
     /// NOTE: Internal so it's testable
@@ -563,7 +571,7 @@ extension String {
         }
     }
 
-    private var _droppingTrailingSlashes: String {
+    internal var _droppingTrailingSlashes: String {
         guard !self.isEmpty else {
             return self
         }
@@ -573,7 +581,9 @@ extension String {
         }
         return String(self[...lastNonSlash])
     }
-    
+
+#if !NO_FILESYSTEM
+
     static var NETWORK_PREFIX: String { #"\\"# }
     
     private var _standardizingPath: String {
@@ -610,7 +620,8 @@ extension String {
     var standardizingPath: String {
         expandingTildeInPath._standardizingPath
     }
-    #endif // !NO_FILESYSTEM
+
+#endif // !NO_FILESYSTEM
     
     // _NSPathComponents
     var pathComponents: [String] {
