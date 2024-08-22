@@ -622,6 +622,11 @@ final class URLTests : XCTestCase {
         XCTAssertEqual(url.path(), "/my/non/existent/path")
     }
 
+    func testURLHostRetainsIDNAEncoding() throws {
+        let url = URL(string: "ftp://user:password@*.xn--poema-9qae5a.com.br:4343/cat.txt")!
+        XCTAssertEqual(url.host, "*.xn--poema-9qae5a.com.br")
+    }
+
     func testURLComponentsPercentEncodedUnencodedProperties() throws {
         var comp = URLComponents()
 
@@ -1082,4 +1087,20 @@ final class URLTests : XCTestCase {
         XCTAssertEqual(comp.percentEncodedPath, "/my%00path")
         XCTAssertEqual(comp.path, "/my\u{0}path")
     }
+
+#if FOUNDATION_FRAMEWORK
+    func testURLComponentsBridging() {
+        var nsURLComponents = NSURLComponents(
+            string: "https://example.com?url=https%3A%2F%2Fapple.com"
+        )!
+        var urlComponents = nsURLComponents as URLComponents
+        XCTAssertEqual(urlComponents.string, nsURLComponents.string)
+
+        urlComponents = URLComponents(
+            string: "https://example.com?url=https%3A%2F%2Fapple.com"
+        )!
+        nsURLComponents = urlComponents as NSURLComponents
+        XCTAssertEqual(urlComponents.string, nsURLComponents.string)
+    }
+#endif
 }
