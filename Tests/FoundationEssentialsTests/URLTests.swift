@@ -330,6 +330,18 @@ final class URLTests : XCTestCase {
         try FileManager.default.removeItem(at: URL(filePath: "\(tempDirectory.path)/tmp-dir"))
     }
 
+    #if os(Windows)
+    func testURLWindowsDriveLetterPath() throws {
+        let url = URL(filePath: "C:\\test\\path", directoryHint: .notDirectory)
+        // .absoluteString and .path() use the RFC 8089 URL path
+        XCTAssertEqual(url.absoluteString, "file:///C:/test/path")
+        XCTAssertEqual(url.path(), "/C:/test/path")
+        // .path and .fileSystemPath strip the leading slash
+        XCTAssertEqual(url.path, "C:/test/path")
+        XCTAssertEqual(url.fileSystemPath, "C:/test/path")
+    }
+    #endif
+
     func testURLFilePathRelativeToBase() throws {
         try FileManagerPlayground {
             Directory("dir") {
@@ -645,6 +657,27 @@ final class URLTests : XCTestCase {
             url.relativePath.utf8.first == ._slash || (url.baseURL != nil && url.path().utf8.first == ._slash)
         )
         XCTAssertEqual(url.path().utf8.last, ._slash)
+    }
+
+    func testURLPathExtensions() throws {
+        var url = URL(filePath: "/path", directoryHint: .notDirectory)
+        url.appendPathExtension("foo")
+        XCTAssertEqual(url.path(), "/path.foo")
+        url.deletePathExtension()
+        XCTAssertEqual(url.path(), "/path")
+
+        url = URL(filePath: "/path", directoryHint: .isDirectory)
+        url.appendPathExtension("foo")
+        XCTAssertEqual(url.path(), "/path.foo/")
+        url.deletePathExtension()
+        XCTAssertEqual(url.path(), "/path/")
+
+        url = URL(filePath: "/path/", directoryHint: .inferFromPath)
+        url.appendPathExtension("foo")
+        XCTAssertEqual(url.path(), "/path.foo/")
+        url.append(path: "/////")
+        url.deletePathExtension()
+        XCTAssertEqual(url.path(), "/path/")
     }
 
     func testURLComponentsPercentEncodedUnencodedProperties() throws {
